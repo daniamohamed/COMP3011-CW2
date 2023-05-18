@@ -1,3 +1,353 @@
 from django.shortcuts import render
+from django.views.decorators.csrf import csrf_exempt
+from datetime import datetime
+from .models import Airport, Flight, Passenger, PaymentProvider, Booking
+import json, random, string, requests
+from django.views.decorators.http import require_http_methods
+from django.http import JsonResponse, HttpResponseBadRequest, HttpResponse
+from django.core.exceptions import ObjectDoesNotExist
+from django.db.models import Count, F, Q
+from django.shortcuts import get_object_or_404
+from requests.exceptions import RequestException
 
 # Create your views here.
+
+"""
+Function Name: get_airports
+API Endpoint handled: /airports
+
+Description:
+This function retrieves a list of all airports, including their names and codes, and returns them along with a status code. It does not require any parameters.
+
+Returns:
+
+A list of airports containing their names and codes.
+Status code indicating the success or failure of the API request.
+"""
+@csrf_exempt
+@require_http_methods(["GET"])
+def get_airports(request):
+    try:
+        # Create an empty list to collect all the airport details as dictionaries
+        list_of_airports = []
+
+        # Add all the airports details as dictionaries to the list
+        list_of_airports = list(Airport.objects.all().values('airport_name', 'airport_code'))
+
+        # add to return function 
+        response_dict = {'status_code': 200, 'airport_list': list_of_airports}
+
+        # Using Django's JsonResponse to return a JSON response
+        return JsonResponse(response_dict)
+
+    except ObjectDoesNotExist:
+        return HttpResponseBadRequest('No Airport objects could be found')
+
+    except Exception as e:
+        # handle unexpected situations
+        return JsonResponse({'status_code': 500, 'error': 'An error occurred: ' + str(e)}, status=500)
+
+"""
+Function Name: get_flights
+API Endpoint handled: /flights
+
+Description:
+This function retrieves appropriate flights based on the provided search parameters and returns them. If no suitable flights are found, it returns the message "No suitable flights found."
+
+Parameters:
+
+Departure: The departure location for the flight search.
+Destination: The destination location for the flight search.
+Date: The date of the desired flight.
+Returns:
+
+A list of flights that match the provided search parameters.
+If no suitable flights are found, the message "No suitable flights found" is returned.
+"""
+@csrf_exempt
+@require_http_methods(["GET"])
+def get_flights(request):
+    try:
+        # Retrieve parameters into variables
+        source_code = request.GET.get('source')            # Source airport's code
+        destination_code = request.GET.get('destination')  # Destination airport's code
+        departure_date = request.GET.get('date')
+
+        # Check if essential parameters have been supplied
+        if not all([source_code, destination_code, departure_date]):
+            missing_params = [param for param in ['source', 'destination', 'date'] if request.GET.get(param) is None]
+            return HttpResponseBadRequest(f"Missing required parameters: {', '.join(missing_params)}")
+
+        # Check if the parameters are correct
+        if not Airport.objects.filter(airport_code__in=[source_code, destination_code]).count() == 2:
+            return HttpResponseBadRequest('Source or destination is invalid')
+
+        # Collect all the flight details as dictionaries
+        list_of_flights = []
+        # flights = Flight.objects.filter(source=source_code, destination=destination_code)
+        flights = Flight.objects.filter(source=source_code, destination=destination_code)\
+                .annotate(prev_bookings=Count('booking', filter=Q(booking__date_of_departure=departure_date)))\
+                .annotate(current_capacity=F('capacity') - F('prev_bookings'))
+
+        list_of_flights = []
+        for flight in flights:
+            list_of_flights.append({
+                'flight_code': flight.flight_id,
+                'duration': flight.duration,
+                'flight_time': flight.time,
+                'remaining_seats': flight.current_capacity,
+                'business_status': flight.business,
+                'eco_price': flight.eco_price,
+                'bus_price': flight.bus_price
+            })
+
+        return JsonResponse({'status_code': 200, 'flight_list': list_of_flights})
+
+    except ObjectDoesNotExist:
+        return JsonResponse({'status_code': 404, 'error': 'Object not found'})
+
+    except Exception as e:
+        return JsonResponse({'status_code': 500, 'error': str(e)})
+
+"""
+Function Name: make_booking
+API Endpoint handled: /make-booking
+
+Description:
+This function handles the booking process for a specific passenger and a single flight ticket. It requires certain parameters to complete the booking.
+
+Parameters:
+
+Passenger Name: The name of the passenger making the booking.
+Flight ID: The ID of the flight for which the booking is being made.
+Returns:
+
+Booking ID: The unique identifier for the booking.
+Payment Provider Details: Information about the payment provider used for the booking.
+"""
+from django import forms
+from django.http import JsonResponse
+
+class BookingForm(forms.Form):
+    legal_name = forms.CharField()
+    first_name = forms.CharField(required=False)
+    last_name = forms.CharField(required=False)
+    date_of_birth = forms.DateField()
+    passport_no = forms.CharField()
+    email = forms.EmailField()
+    contact_no = forms.CharField(required=False)
+    flight_code = forms.CharField()
+    date_of_departure = forms.DateField()
+    booking_class = forms.ChoiceField(choices=[('eco', 'Economy'), ('bus', 'Business')])
+
+@csrf_exempt
+def make_booking(request):
+    if request.method == 'GET':
+        return HttpResponseBadRequest('GET request received. This URL only supports POST requests')
+    
+    try:
+        form = BookingForm(request.POST)
+
+        if not form.is_valid():
+            return JsonResponse({'errors': form.errors}, status=400)
+
+        cleaned_data = form.cleaned_data
+        dob = cleaned_data['date_of_birth']
+        dep_date = cleaned_data['date_of_departure']
+
+        if dob.year < 1950 or dob.year > 2023:
+            return HttpResponseBadRequest('Date of birth is before 1950 or after 2023')
+
+        if dep_date.year < 2023 or dob.year > 2024:
+            return HttpResponseBadRequest('Date of departure is before 2023 or after 2024. Can only book from 2023-2024')
+
+        if not Flight.objects.filter(flight_id=cleaned_data['flight_code']).exists():
+            return HttpResponseBadRequest("Invalid flight code")
+        
+        defaults = {
+            'passenger_id': ''.join(random.choices(string.ascii_uppercase + string.digits, k=6)),
+            'legal_name': cleaned_data['legal_name'],
+            'first_name': cleaned_data.get('first_name', ''),
+            'last_name': cleaned_data.get('last_name', ''),
+            'date_of_birth': dob,
+            'email': cleaned_data['email'],
+            'contact_no': cleaned_data.get('contact_no', '')
+        }
+
+        passenger, created = Passenger.objects.update_or_create(
+            passport_no=cleaned_data['passport_no'],
+            defaults=defaults
+        )
+
+        if not created and passenger.email != cleaned_data['email']:
+            return HttpResponseBadRequest('This Email ID already has a passenger. Please use a different email for your new passenger')
+
+        booking_defaults = {
+            'booking_id': ''.join(random.choices(string.ascii_uppercase + string.digits, k=8)),
+            'booking_class': cleaned_data['booking_class'],
+            'invoice_id': None,
+            'payment_received': False
+        }
+
+        flight = Flight.objects.get(flight_id=cleaned_data['flight_code'])
+
+        booking, created = Booking.objects.get_or_create(
+            flight_id=flight,
+            passenger_id=passenger,
+            date_of_departure=dep_date,
+            defaults=booking_defaults
+        )
+
+        if not created:
+            return HttpResponseBadRequest(f"The requested booking has been previously made with booking id {booking.booking_id}")
+        
+        providers = list(PaymentProvider.objects.all().values('pp_id', 'name'))
+        
+        return JsonResponse({'status_code': '200', 'booking_id': booking.booking_id, 'pp_list': providers})
+
+    except Exception as e:
+        return JsonResponse({'errors': 'An unexpected error occurred: ' + str(e)}, status=500)
+    
+"""
+Function Name: create_invoice
+API Endpoint handled: /invoice/{booking-id}
+
+Description:
+This function handles the generation of an invoice for a specific booking. It takes the preferred vendor as a parameter and interacts with the payment provider's API endpoint to create the invoice. Additionally, it updates the relevant details in the bookings table.
+
+Parameters:
+
+Booking ID: The unique identifier of the booking for which the invoice is being created.
+Preferred Vendor: The preferred vendor for generating the invoice.
+Returns:
+
+Invoice ID: The unique identifier for the generated invoice.
+"""
+@csrf_exempt
+def create_invoice(request, booking_id):
+    # Check if POST request was only sent
+    if request.method != 'POST':
+        return HttpResponseBadRequest('This URL only supports POST requests')
+
+    # Retrieve parameter
+    preferred_vendor_param = request.POST.get('preferred_vendor')
+
+    # Check if parameter has been supplied
+    if not preferred_vendor_param:
+        return JsonResponse({'error': 'Missing required parameter: \'preferred_vendor\''}, status=400)
+
+    # Check parameter formatting and validity
+    if not PaymentProvider.objects.filter(pp_id=preferred_vendor_param).exists():
+        return JsonResponse({'error': '\'preferred_vendor\' is invalid'}, status=400)
+
+    # Use get_object_or_404 to get the booking or return a 404 error if not found
+    booking = get_object_or_404(Booking, booking_id=booking_id)
+
+    # We check if the specified booking already has an invoice ID, in which case we don't generate a new invoice
+    if booking.invoice_id:
+        return JsonResponse({
+            'error': f'Given \'booking_id\': {booking_id} already has an invoice: {booking.invoice_id}'
+        }, status=400)
+
+    # Save the payment provider this booking is using
+    booking.payment_provider = PaymentProvider.objects.get(pp_id = preferred_vendor_param)
+
+    # Get the url of the current provider and append 'invoice/' to generate required path
+    given_provider = PaymentProvider.objects.get(pp_id = preferred_vendor_param)
+    url_to_call = given_provider.url+'invoice/'
+
+    # Get the cost of the ticket
+    amount = booking.flight_id.eco_price if booking.booking_class == 'eco' else booking.flight_id.bus_price
+
+    # amount is of type float, need to convert it to pennies
+    amount = int(amount * 100)
+    input_data = {
+        "api_key": '8232',
+        "amount": amount,
+        "metadata": []
+    }
+
+    # Convert to json and send the POST request to the payment provider's api endpoint
+    response = requests.post(url_to_call, json=input_data)
+
+    if response.ok:
+        response_data = response.json()
+        invoice_id = response_data['invoice_id']  # Retrieve the invoice id
+        # Update it in bookings table and save changes
+        booking.invoice_id = invoice_id
+        booking.save()
+
+        # Return the invoice_id to the aggregator
+        return JsonResponse({'invoice_id': invoice_id}, status=200)
+
+    else:
+        error_messages = {
+            400: 'Bad Request',
+            401: 'Unauthorized',
+            403: 'Forbidden',
+            404: 'Not Found',
+            500: 'Internal Server Error'
+        }
+        error_message = error_messages.get(response.status_code, "Unknown Error")
+        return JsonResponse({'error': f'Error: {error_message}'}, status=response.status_code)
+
+"""
+Function Name: invoice_status
+Api Endpoint handled: /confirm/{invoice-id}
+
+Description:
+This function handles the checking of the invoice status for a specific invoice. It calls the payment provider's API endpoint to retrieve the current status of the invoice. Additionally, it updates the relevant details in the bookings table.
+
+Parameters:
+
+Invoice ID: The unique identifier of the invoice for which the status is being checked.
+Returns:
+
+Payment Status: The current status of the invoice payment.
+"""
+@csrf_exempt
+def invoice_status(request, booking_id):
+    # Check if POST request was only sent
+    if request.method != 'POST':
+        return HttpResponseBadRequest('This URL only supports POST requests')
+
+    try:
+        # Retrieve the booking that matches the invoice id and payment provider
+        booking = Booking.objects.get(booking_id=booking_id)
+    except Booking.DoesNotExist:
+        return HttpResponseBadRequest('Invalid booking_id')
+    except Booking.MultipleObjectsReturned:
+        return HttpResponseBadRequest('Data Error: More than one booking was found for the given booking_id. Please contact NovaAir')
+
+    # Retrieve the payment provider for this booking
+    provider = booking.payment_provider
+    url_to_call = f'{provider.url}invoice/{booking.invoice_id}/'
+    input_data = {'api_key': '8232'}
+
+    try:
+        # Send a GET request
+        response = requests.get(url_to_call, json=input_data)
+        response.raise_for_status()  # Raise an exception for 4xx or 5xx status codes
+
+        response_data = response.json()
+        # Extract the payment status from the response
+        payment_status = response_data['paid']
+
+        # Update the booking with the new invoice status
+        booking.invoice_status = payment_status
+        booking.save()
+
+        # Return the invoice_status to the aggregator
+        return JsonResponse({'status_code': '200', 'payment_status': payment_status})
+
+    except RequestException as e:
+        # Handle any request-related exceptions
+        return HttpResponse(f'Error: {str(e)}')
+
+    except (KeyError, ValueError):
+        # Handle JSON decoding or key extraction errors
+        return HttpResponse('Error: Invalid response received')
+
+    except Exception as e:
+        # Handle any other exceptions
+        return HttpResponse(f'Error: {str(e)}')

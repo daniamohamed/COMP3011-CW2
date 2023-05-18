@@ -1,0 +1,7 @@
+{
+    "python.testing.pytestArgs": [
+        "novaair"
+    ],
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true
+}
