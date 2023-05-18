@@ -8,7 +8,6 @@ from django.db.models import Count, F, Q
 from django.shortcuts import get_object_or_404
 from requests.exceptions import RequestException
 from django import forms
-from django.http import JsonResponse
 
 from datetime import datetime
 import json, random, string, requests
