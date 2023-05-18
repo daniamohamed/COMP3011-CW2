@@ -240,7 +240,7 @@ def create_invoice(request, booking_id):
 
 """
 Function Name: invoice_status
-Api Endpoint handled: /confirm/{invoice-id}
+API Endpoint handled: /confirm/{invoice-id}
 
 Description:
 This function handles the checking of the invoice status for a specific invoice. It calls the payment provider's API endpoint to retrieve the current status of the invoice. 
