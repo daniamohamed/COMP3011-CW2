@@ -1,6 +1,5 @@
 import pytest
 import requests
-import requests_mock
 
 '''
 To run the tests:
@@ -8,20 +7,20 @@ To run the tests:
 2. pytest -v test.py
 '''
 
-
+# Test for make_booking()
 def test_make_booking():
 
     url = 'http://127.0.0.1:3360/novaair/make-booking/'
 
     payload_booking = {
-        'legal_name': 'Aaron Ramsdale',
-        'first_name': 'Aaron',
-        'last_name': 'Ramsdale',
-        'date_of_birth': '1999-03-26',
-        'passport_no': 'AR1826492',
-        'email': 'aaron@arsenal.co.uk',
-        'contact_no': '27464657563',
-        'flight_code': 'NA09',
+        'legal_name': 'Gabriel Jesus',
+        'first_name': 'Gabriel',
+        'last_name': 'Jesus',
+        'date_of_birth': '1995-06-26',
+        'passport_no': 'GJ1829074',
+        'email': 'gabijesus@arsenal.co.uk',
+        'contact_no': '27507623563',
+        'flight_code': 'NA05',
         'date_of_departure': '2023-07-15',
         'booking_class': 'bus'
     }
@@ -33,10 +32,10 @@ def test_make_booking():
     response_json = response.json()
     assert 'booking_id' in response_json, f"Expected 'booking_id' in response, but got {response.text}"
 
-
+# Test for create_invoice()
 def test_invoice():
     
-    url = 'http://127.0.0.1:3360/novaair/invoice/DAZ2OWOJ/'
+    url = 'http://127.0.0.1:3360/novaair/invoice/BZRR03XJ/'
 
     payload_invoice = {
         'preferred_vendor': 'NN7'
@@ -49,9 +48,10 @@ def test_invoice():
     response_json = response.json()
     assert 'invoice_id' in response_json, f"Expected 'invoice_id' in response, but got {response.text}"
 
+# Test for invoice_status()
 def test_invoice_status():
     
-    url = 'http://127.0.0.1:3360/novaair/confirm/DAZ2OWOJ/'
+    url = 'http://127.0.0.1:3360/novaair/confirm/BZRR03XJ/'
 
     response = requests.post(url)
 

@@ -23,7 +23,7 @@ class Flight(models.Model):
     bus_price = models.FloatField(blank = True, null = True)
     
     def __str__(self):
-      return f'Flight ID {self.flight_id}: {self.source} - {self.destination}, Departure Time (24h): {self.time}, Duration: {self.duration} minutes'
+      return f'{self.flight_id}: {self.source} - {self.destination}, Departure Time (24h): {self.time}, Duration: {self.duration} minutes'
 
 # Model representing a Passenger
 class Passenger(models.Model):
@@ -37,7 +37,7 @@ class Passenger(models.Model):
     contact_no = models.CharField(max_length = 12, blank = True, null = True)
     
     def __str__(self):
-        return f'Legal Name: {self.legal_name} - Passport Number: ({self.passport_no}, Email ID: ({self.email}), Contact Number: ({self.contact_no})'
+        return f'{self.legal_name} - Passport No. ({self.passport_no}), Email ID: {self.email}'
 
 # Model representing a Payment Provider
 class PaymentProvider(models.Model):
@@ -48,7 +48,7 @@ class PaymentProvider(models.Model):
 
     def __str__(self):
       
-      return f'Payment Provider: {self.name} - ID: {self.pp_id}'
+      return f'{self.name} ({self.pp_id})'
 
 # Model representing a Booking
 class Booking(models.Model):
@@ -62,4 +62,4 @@ class Booking(models.Model):
     payment_received = models.BooleanField(default = False)
 
     def __str__(self):
-        return f'Booking ID: {self.booking_id} - Flight ID: {self.flight_id.flight_id}, Passenger ID: {self.passenger_id.legal_name} ({self.booking_class}) , Invoice ID: {self.invoice_id}'
+        return f'Booking ID ({self.booking_id}) - Flight: {self.flight_id.flight_id}, Passenger: {self.passenger_id.legal_name} ({self.booking_class}) , Invoice: {self.invoice_id}'
