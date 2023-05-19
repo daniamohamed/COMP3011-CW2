@@ -108,7 +108,21 @@ def make_booking(request):
         return HttpResponseBadRequest('GET request received. This URL only supports POST requests')
     
     try:
-        form = BookingForm(request.POST)
+        data = request.POST.copy() 
+
+        if 'class' in data: 
+            if data['class'] == 'eco':
+                data['booking_class'] = 'eco'
+            elif data['class'] == 'bus':
+                data['booking_class'] = 'bus'
+            else:
+                return HttpResponseBadRequest('Invalid class value. Please provide either "eco" or "bus".')
+            
+            data.pop('class') 
+
+        form = BookingForm(data)
+        
+        # form = BookingForm(request.POST)
 
         if not form.is_valid():
             return JsonResponse({'errors': form.errors}, status = 400)
