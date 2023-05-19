@@ -22,7 +22,7 @@ def test_make_booking():
         'contact_no': '27507623563',
         'flight_code': 'NA05',
         'date_of_departure': '2023-07-15',
-        'booking_class': 'bus'
+        'class': 'bus'
     }
 
     response = requests.post(url, data=payload_booking)
